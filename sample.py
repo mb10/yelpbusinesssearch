@@ -1,34 +1,18 @@
-# -*- coding: utf-8 -*-
-"""
-Yelp API v2.0 code sample.
 
-This program demonstrates the capability of the Yelp API version 2.0
-by using the Search API to query for businesses by a search term and location,
-and the Business API to query additional information about the top result
-from the search query.
-
-Please refer to http://www.yelp.com/developers/documentation for the API documentation.
-
-This program requires the Python oauth2 library, which you can install via:
-`pip install -r requirements.txt`.
-
-Sample usage of the program:
-`python sample.py --term="bars" --location="San Francisco, CA"`
-"""
 import argparse
 import json
 import pprint
 import sys
 import urllib
 import urllib2
+import csv
+from datetime import datetime
+import os.path
 
 import oauth2
 
 
 API_HOST = 'api.yelp.com'
-DEFAULT_TERM = 'dinner'
-DEFAULT_LOCATION = 'San Francisco, CA'
-SEARCH_LIMIT = 3
 SEARCH_PATH = '/v2/search/'
 BUSINESS_PATH = '/v2/business/'
 
@@ -40,19 +24,7 @@ TOKEN_SECRET = None
 
 
 def request(host, path, url_params=None):
-    """Prepares OAuth authentication and sends the request to the API.
 
-    Args:
-        host (str): The domain host of the API.
-        path (str): The path of the API after the domain.
-        url_params (dict): An optional set of query parameters in the request.
-
-    Returns:
-        dict: The JSON response from the request.
-
-    Raises:
-        urllib2.HTTPError: An error occurs from the HTTP request.
-    """
     url_params = url_params or {}
     url = 'http://{0}{1}?'.format(host, urllib.quote(path.encode('utf8')))
 
@@ -74,14 +46,16 @@ def request(host, path, url_params=None):
     print u'Querying {0} ...'.format(url)
 
     conn = urllib2.urlopen(signed_url, None)
+    response_data = conn.read()
+
     try:
-        response = json.loads(conn.read())
+        response = json.loads(response_data)
     finally:
         conn.close()
 
     return response
 
-def search(term, location):
+def search(offset): #
     """Query the Search API by a search term and location.
 
     Args:
@@ -91,68 +65,73 @@ def search(term, location):
     Returns:
         dict: The JSON response from the request.
     """
-    
+
+    location = "San Francisco, CA"
+
+
     url_params = {
-        'term': term.replace(' ', '+'),
         'location': location.replace(' ', '+'),
-        'limit': SEARCH_LIMIT
-    }
-    return request(API_HOST, SEARCH_PATH, url_params=url_params)
+        'limit': 20,
+        'offset': offset
+    } 
+    results = request(API_HOST, SEARCH_PATH, url_params=url_params)
+    return results['businesses']
 
-def get_business(business_id):
-    """Query the Business API by a business ID.
+def run_query(total_requested, offset_increment):
+	offset = 0
+	bizlist = []
 
-    Args:
-        business_id (str): The ID of the business to query.
+	while offset < total_requested: 
+	    try:
+	        bizlist += prep_dict(search(offset))
+	    except urllib2.HTTPError as error:
+	        sys.exit('Encountered HTTP error {0}. Abort program.'.format(error.code))
+	    offset += offset_increment
 
-    Returns:
-        dict: The JSON response from the request.
-    """
-    business_path = BUSINESS_PATH + business_id
+	return bizlist
 
-    return request(API_HOST, business_path)
+def prep_dict(p):
 
-def query_api(term, location):
-    """Queries the API by the input values from the user.
+	new_list = []
 
-    Args:
-        term (str): The search term to query.
-        location (str): The location of the business to query.
-    """
-    response = search(term, location)
+	for item in p:
+		item_dict = {}
+		for entry in item:
+			if isinstance(item[entry], dict):
+				for key, value in item[entry].iteritems():
+					item_dict[key] = value.encode('utf-8') if isinstance(value, unicode) else value
+			else:
+				item_dict[entry] = item[entry].encode('utf-8') if isinstance(item[entry], unicode) else item[entry]
+		new_list.append(item_dict)
 
-    businesses = response.get('businesses')
+	return new_list
 
-    if not businesses:
-        print u'No businesses for {0} in {1} found.'.format(term, location)
-        return
+def get_field_names(bizlist):
 
-    business_id = businesses[0]['id']
+	fieldnames = []
+		
+	for bus in bizlist[0:20]:
+		for v in bus:
+			if v not in fieldnames:
+				fieldnames.append(v)
 
-    print u'{0} businesses found, querying business info for the top result "{1}" ...'.format(
-        len(businesses),
-        business_id
-    )
+	return fieldnames
 
-    response = get_business(business_id)
+bizlist = run_query(10000, 20)
 
-    print u'Result for business "{0}" found:'.format(business_id)
-    pprint.pprint(response, indent=2)
-
-
-def main():
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('-q', '--term', dest='term', default=DEFAULT_TERM, type=str, help='Search term (default: %(default)s)')
-    parser.add_argument('-l', '--location', dest='location', default=DEFAULT_LOCATION, type=str, help='Search location (default: %(default)s)')
-
-    input_values = parser.parse_args()
-
-    try:
-        query_api(input_values.term, input_values.location)
-    except urllib2.HTTPError as error:
-        sys.exit('Encountered HTTP error {0}. Abort program.'.format(error.code))
+file_time = datetime.now()
+time_string = file_time.strftime('%Y-%m-%d_%H-%M-%S')
+csvfilename = os.path.join('business_csvs','businesses-{}.csv'.format(time_string))
 
 
-if __name__ == '__main__':
-    main()
+with open(csvfilename, 'w') as csvfile:
+    fieldnames = get_field_names(bizlist)
+    writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
+
+    writer.writeheader()
+
+    for row in bizlist:
+    	writer.writerow(row)
+    
+
+
