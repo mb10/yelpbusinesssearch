@@ -17,10 +17,15 @@ SEARCH_PATH = '/v2/search/'
 BUSINESS_PATH = '/v2/business/'
 
 # OAuth credential placeholders that must be filled in by users.
-CONSUMER_KEY = None
-CONSUMER_SECRET = None
-TOKEN = None
-TOKEN_SECRET = None
+with open('keys.json', 'rb') as key_file:
+	KEYS = json.load(key_file)
+	print KEYS
+
+CONSUMER_KEY = str(KEYS['CONSUMER_KEY'])
+CONSUMER_SECRET = str(KEYS['CONSUMER_SECRET'])
+TOKEN = str(KEYS['TOKEN'])
+TOKEN_SECRET = str(KEYS['TOKEN_SECRET'])
+
 
 
 def request(host, path, url_params=None):
@@ -77,19 +82,6 @@ def search(offset): #
     results = request(API_HOST, SEARCH_PATH, url_params=url_params)
     return results['businesses']
 
-def run_query(total_requested, offset_increment):
-	offset = 0
-	bizlist = []
-
-	while offset < total_requested: 
-	    try:
-	        bizlist += prep_dict(search(offset))
-	    except urllib2.HTTPError as error:
-	        sys.exit('Encountered HTTP error {0}. Abort program.'.format(error.code))
-	    offset += offset_increment
-
-	return bizlist
-
 def prep_dict(p):
 
 	new_list = []
@@ -117,21 +109,47 @@ def get_field_names(bizlist):
 
 	return fieldnames
 
-bizlist = run_query(10000, 20)
-
-file_time = datetime.now()
-time_string = file_time.strftime('%Y-%m-%d_%H-%M-%S')
-csvfilename = os.path.join('business_csvs','businesses-{}.csv'.format(time_string))
 
 
-with open(csvfilename, 'w') as csvfile:
-    fieldnames = get_field_names(bizlist)
-    writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
 
-    writer.writeheader()
 
-    for row in bizlist:
-    	writer.writerow(row)
-    
+def run_query(total_requested, offset_increment):
+	offset = 0
+	bizlist = []
 
+	while offset < total_requested: 
+		bizlist += prep_dict(search(offset))
+		offset += offset_increment
+
+	return bizlist
+
+
+
+
+def main():
+	file_time = datetime.now()
+	time_string = file_time.strftime('%Y-%m-%d_%H-%M-%S')
+	csvfilename = os.path.join('business_csvs','businesses-{}.csv'.format(time_string))
+
+	with open(csvfilename, 'wb') as csvfile:
+		offset = 0
+		offset_increment = 3
+		number_to_fetch = 3
+		first_batch = True
+		writer = None
+
+		while offset < number_to_fetch:
+			bizlist = prep_dict(search(offset))
+			if first_batch:
+				fieldnames = get_field_names(bizlist)
+				writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
+				writer.writeheader()
+				first_batch=False
+			for row in bizlist:
+				writer.writerow(row)
+			offset += offset_increment
+
+
+if __name__ == "__main__":
+	main()
 
