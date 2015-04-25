@@ -1,4 +1,3 @@
-
 import argparse
 import json
 import pprint
@@ -46,7 +45,6 @@ def request(host, path, url_params=None):
     token = oauth2.Token(TOKEN, TOKEN_SECRET)
     oauth_request.sign_request(oauth2.SignatureMethod_HMAC_SHA1(), consumer, token)
     signed_url = oauth_request.to_url()
-    print signed_url
     
     print u'Querying {0} ...'.format(url)
 
@@ -60,17 +58,17 @@ def request(host, path, url_params=None):
 
     return response
 
-def search(offset): #
+def search(dbaname): #
 
     location = "San Francisco CA"
-    term = "galaxy granite inc"
+    term = dbaname.lower()
 
 
     url_params = {
     	'term': term.replace(' ', '+'),
         'location': location.replace(' ', '+'),
-        'limit': 20,
-        'offset': offset,
+        'limit': 20
+        #'offset': offset,
         #'bounds':'37.767794,-122.431304|37.765734,-122.427735',
         ##'radius_filter':'100',
         ##'sort':'2'
@@ -109,25 +107,33 @@ def get_field_names(bizlist):
 def main():
 	file_time = datetime.now()
 	time_string = file_time.strftime('%Y-%m-%d_%H-%M-%S')
-	csvfilename = os.path.join('business_csvs','businesses-{}.csv'.format(time_string))
+	destfilename = os.path.join('by_name_csvs','by_name-{}.csv'.format(time_string))
+	lookupfilename = os.path.join('20150422_Registered_Business_Locations - Closed_2.csv')
 
-	with open(csvfilename, 'wb') as csvfile:
-		offset = 0
-		offset_increment = 20
-		number_to_fetch = 20
+	with open(destfilename, 'wb') as businesses_found, open(lookupfilename, 'rU') as lookupfile:
 		first_batch = True
 		writer = None
 
-		while offset < number_to_fetch:
-			bizlist = prep_dict(search(offset))
-			if first_batch:
-				fieldnames = get_field_names(bizlist)
-				writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
-				writer.writeheader()
-				first_batch=False
-			for row in bizlist:
-				writer.writerow(row)
-			offset += offset_increment
+		reader = csv.DictReader(lookupfile)
+
+		for item in reader:
+		#while offset < number_to_fetch:
+			location_id = item['Location_ID']
+			dba_name = item['DBA Name']
+			print location_id, dba_name
+
+			bizlist = prep_dict(search(dba_name))
+			if bizlist:
+				if first_batch:
+					fieldnames = ['Location_ID_sfdata'] + ['DBA Name sfdata'] + get_field_names(bizlist)
+					writer = csv.DictWriter(businesses_found, fieldnames=fieldnames, extrasaction='ignore')
+					writer.writeheader()
+					first_batch=False
+				for row in bizlist:
+					row['DBA Name sfdata'] = dba_name
+					row['Location_ID_sfdata'] = location_id
+					writer.writerow(row)
+				#offset += offset_increment
 
 
 if __name__ == "__main__":
